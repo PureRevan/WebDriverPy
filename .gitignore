@@ -1,0 +1,16 @@
+/WebDriverPy/chrome_binary/*
+!/WebDriverPy/chrome_binary
+/WebDriverPy/extensions/uBlockOrigin/*
+!/WebDriverPy/extensions/uBlockOrigin/
+/WebDriverPy/logs/*
+!/WebDriverPy/logs/
+/WebDriverPy/temp/*
+!/WebDriverPy/temp/
+/WebDriverPy/captures/*
+!/WebDriverPy/captures/
+/secrets.py
+/advanced_driver_scripts.py
+/WebDriverPy/chromedriver.exe
+/WebDriverPy/subpackages/PyProxies/data/*
+!/WebDriverPy/subpackages/PyProxies/data/
+/.idea/
