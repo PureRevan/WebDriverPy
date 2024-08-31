@@ -189,3 +189,45 @@ class DefaultOutputManager(OutputManager):
     def toggle_prints(self, value: bool) -> Self:
         self.__prints_enabled = value
         return self
+
+
+class NoOutput(OutputManager):
+    """
+    OutputManager, which never produces any output.
+
+    Only functionality (static methods):
+        - Format messages using default_format_message()
+        - Get default log path using get_default_logs_path()
+    """
+
+    def print(self, content: str, level: str = "INFO") -> Self:
+        pass
+
+    def print_only(self, content: str, level: str = "INFO") -> Self:
+        pass
+
+    def log(self, content: str, level: str = "INFO") -> Self:
+        pass
+
+    def plog(self, content: str, level: str = "INFO") -> Self:
+        pass
+
+    def set_always_log_prints(self, value: bool) -> Self:
+        pass
+
+    def set_always_print_logs(self, value: bool) -> Self:
+        pass
+
+    def toggle_logs(self, value: bool) -> Self:
+        pass
+
+    def toggle_prints(self, value: bool) -> Self:
+        pass
+
+    @staticmethod
+    def get_default_logs_path() -> str:
+        return resolve_resource_path("./logs/driver_logs.txt")
+
+    @staticmethod
+    def default_format_message(content: str, level: str) -> str:
+        return f"[{datetime.now().strftime('%d.%m.%Y %H:%M:%S')} @ {level}]: {content}"

@@ -38,6 +38,7 @@ class DriverScript(ABC):
         :return: Runs the script and may return a result depending on the script.
         """
         self.driver.output.log(f'Running script "{self.__class__.__name__}"', "SCRIPT")
+
         if not self.driver.is_on_empty_tab:
             self.driver.open_new_tab()
 
@@ -77,9 +78,10 @@ class OpenGoogle(OpeningDriverScript):
     def __init__(self, driver: WebDriver):
         super().__init__(driver, "https://google.com")
 
-    def run(self) -> None:
+    def run(self) -> WebDriver:
         super().run()
         self.driver.wait_until_clickable("q", by="name")
+        return self.driver
 
 
 class OpenWhatIsMyIP(OpeningDriverScript):
@@ -90,8 +92,9 @@ class OpenWhatIsMyIP(OpeningDriverScript):
     def __init__(self, driver: WebDriver):
         super().__init__(driver, "https://whatismyipaddress.com")
 
-    def run(self) -> None:
+    def run(self) -> WebDriver:
         super().run()
+        return self.driver
 
 
 class GrabTempMail(OpeningDriverScript):

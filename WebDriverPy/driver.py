@@ -37,9 +37,10 @@ from .exceptions import WindowRecorderException, DriverStillRunningException, Dr
 
 class WebDriver(webdriver.Chrome):
     """
-    An extended and simplified, yet still as powerful, version of the selenium webdriver based on Chromium.
+    An extended and more accessible version of the selenium webdriver based on Chromium.
 
-    It provides automatic binary downloads, support for proxies, a screen recorder, custom logs, automatic installation of an ad blocker and other useful utilities.
+    It provides automatic binary downloads, support for proxies, a screen recorder, custom logs,
+    automatic installation of an ad blocker and many other useful utilities.
     """
 
     def __init__(self,
@@ -58,6 +59,7 @@ class WebDriver(webdriver.Chrome):
                  log_print_output: bool = False,
                  print_logs: bool = False,
                  disable_all_logs: bool = False,
+                 disable_all_prints: bool = False,
                  download_directory: str = resolve_resource_path("./captures"),
                  recording_script_js: str = resolve_resource_path("./scripts/preciseMediaRecorder.js"),
                  prevent_fullscreen_js_script: str = resolve_resource_path("./scripts/preventFullScreen.js"),
@@ -72,6 +74,27 @@ class WebDriver(webdriver.Chrome):
                  additional_driver_arguments: tuple[str, ...] = ("--disable-search-engine-choice-screen",),
                  **kwargs) -> None:
         """
+        Configure the WebDriver here.
+
+        Most Important Options:
+        - no_cookies: Blocks cookies. (Some Websites need cookies to function (this needs to be False))
+        - use_ad_blocker: Blocks ads by automatically installing uBlockOrigin in the browser.
+        - start_maximized: Whether to start the browser with a maximized window.
+
+        More Specific Important Options:
+        - late_init: Whether to initialize the underlying Selenium Webdriver superclass later manually by calling the init() method
+            This allows for configurations otherwise impossible while the driver is running before starting it, like clearing or managing internal directories / downloads
+        - headless: Starts the browser in headless mode. (Experimental with some options)
+        - try_spoofing: Whether the driver should use some basic anti-bot-detection measures, like typing like a
+            human instead of just pasting the desired text into a textbox
+        - proxies: Configure proxies settings
+
+        Advanced Options:
+        - additional_driver_arguments: Add any additional arguments for the Chromedriver
+        - ignore_certificate_errors: Ignores certificate errors, such as invalid certificates
+            (can be enabled together with using free (and unsecure) proxies)
+        - disable_all_logs: Prevents the driver from creating a log file / using the log file
+
         :param chromedriver_path: The path to the Chromedriver binary. If set to None, the binary is automatically downloaded and saved.
         :param chrome_binary_path: The path to the Chrome binary. If set to None, the binary is automatically downloaded and saved.
         :param headless: Whether to use headless mode
@@ -82,6 +105,7 @@ class WebDriver(webdriver.Chrome):
         :param log_print_output: Whether to always log anything printed using the output_manager
         :param print_logs: Whether to print all logs
         :param disable_all_logs: Whether to disable all logs
+        :param disable_all_logs: Whether to disable all prints
         :param allow_browser_recording: Whether to allow the browser to record the current tab
         :param disable_dev_memory_restrictions: Whether to disable certain memory restriction for chrome
         :param enable_safe_browsing: Whether to enable safe browsing
@@ -120,6 +144,16 @@ class WebDriver(webdriver.Chrome):
             Be careful when using this class before it has been fully initialized!
         :param clear_temp_dir: Whether to clear the internal temporary directory at {package_dir}/temp
         :param kwargs: Any additional keyword arguments directly supplied to the webdriver.Chrome superclass
+
+
+        Additional Note:
+            Using headless mode may result in seeing a white blank screen, when using the automatically downloaded chrome for testing.
+            There doesn't seem to be a direct solution to it (I at least couldn't find one) other than switching to a locally installed
+            normal version of Chrome.
+
+            The automatically installed Chrome flavour nevertheless remains "Chrome for Testing", even though this may cause the issue (?)
+            The reason for this is, because it is pretty much the only easily portable and automatically
+            installable Chrome version, which is also easy to match to any chromedriver in terms of versioning.
         """
         self._ensure_internal_base_dirs_exists()
 
@@ -129,6 +163,7 @@ class WebDriver(webdriver.Chrome):
         self.output.set_always_log_prints(log_print_output)
         self.output.set_always_print_logs(print_logs)
         self.output.toggle_logs(not disable_all_logs)
+        self.output.toggle_prints(not disable_all_prints)
 
         temp_dir = resolve_resource_path("./temp")
         if clear_temp_dir:
@@ -209,7 +244,7 @@ class WebDriver(webdriver.Chrome):
 
         options = {
             "--disable-dev-shm-usage": disable_dev_memory_restrictions,
-            "--headless": headless,
+            "--headless=new": headless,
             "--start-maximized": start_maximized,
             "--use-fake-ui-for-media-stream": allow_browser_recording,
             "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36": try_spoofing,
@@ -257,10 +292,7 @@ class WebDriver(webdriver.Chrome):
         else:
             self.output.log("Driver initialization delayed to manual initialization!", "STARTUP")
 
-        if try_spoofing:
-            self.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-
-    def init(self, **kwargs) -> None:
+    def init(self, **kwargs) -> Self:
         """
         :param kwargs: Any other keyword arguments relevant to the webdriver.Chrome class.
             Note that these values will be combined and overwrite overlapping values from the already passed kwargs of the __init__ method
@@ -273,15 +305,20 @@ class WebDriver(webdriver.Chrome):
 
         extensions = ','.join(self._extensions)
         self._init_options.add_argument(f"--load-extension={extensions}")
-        self.output.log(f"Registered extensions: {extensions}")
+        self.output.log(f"Registered extensions: {extensions}", "CONFIG")
 
         self.running = True
         super().__init__(service=self._init_service, options=self._init_options, **self._init_kwargs)
 
         self.output.log("Driver initialized!", "STARTUP")
 
+        if self.try_spoofing:
+            self.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        return self
+
+
     def _proxy_init_config(self, proxies: list[Proxy] | Proxy | list[str] | str | None,
-                           proxy_auto_rotation_size: int, proxy_auto_search_size: int) -> None:
+                           proxy_auto_rotation_size: int, proxy_auto_search_size: int) -> Self:
         if isinstance(proxies, list):
             self.output.log("Received proxy pool configuration...", "CONFIG")
 
@@ -328,9 +365,10 @@ class WebDriver(webdriver.Chrome):
 
         if proxies is None or not self.proxy_pool:
             self.proxy_pool = None
+        return self
 
     @property
-    def uses_protected_proxy(self):
+    def uses_protected_proxy(self) -> bool:
         return isinstance(self.proxy, ProtectedProxy)
 
     def _configure_protected_proxy_extension(self, extension_location: str = resolve_resource_path("./extensions/proxy_auth")) -> str:
@@ -355,7 +393,7 @@ class WebDriver(webdriver.Chrome):
         return extension_location
 
     @staticmethod
-    def _ensure_internal_base_dirs_exists():
+    def _ensure_internal_base_dirs_exists() -> None:
         internal_dirs = [
             resolve_resource_path(rss)
             for rss in [
@@ -383,7 +421,7 @@ class WebDriver(webdriver.Chrome):
 
         return proxy_extension
 
-    def rotate_proxy(self):
+    def rotate_proxy(self) -> Self:
         """
         :return: Rotates the current proxy. Note that this will quit and restart the driver!
         """
@@ -403,23 +441,38 @@ class WebDriver(webdriver.Chrome):
             # Add new proxy extension
             self._extensions.add(self.proxy_extension)
 
-        self.init()
+        return self.init()
 
-    def clear_downloads(self):
-        self.output.log("Clearing downloads...")
-        force_delete(self.chromedriver_path)
-        force_delete(self.chrome_binary, force_non_empty_dir_deletion=True)
+    def clear_downloads(self, chrome_binaries: bool = True, chromedriver: bool = True, temp_dir: bool = True, ad_blocker: bool = True) -> Self:
+        self.output.log("Clearing downloads...", "CLEAR")
+        if self.running:
+            raise DriverStillRunningException("Unable to clear downloads: The driver is still running!")
+
+        if chrome_binaries:
+            self.clear_chrome_binaries()
+        if chromedriver:
+            self.clear_chromedriver_binaries()
+        if temp_dir:
+            self.clear_temp_dir()
+        if ad_blocker:
+            self.clear_ad_blocker_files()
         self.output.log("Successfully cleared downloads!")
+        return self
 
-    def clear_temp_dir(self, resolved_path: str = resolve_resource_path("./temp")):
-        self.output.log(f"Clearing temporary directory {resolved_path}...")
+    def clear_temp_dir(self, resolved_path: str = resolve_resource_path("./temp")) -> Self:
+        if self.running:
+            raise DriverStillRunningException("Unable to delete temporary directory: The driver is still running!")
+
+        self.output.log(f"Clearing temporary directory {resolved_path}...", "CLEAR")
         force_delete(resolved_path, force_non_empty_dir_deletion=True)#
         self.output.log("Successfully cleared temporary directory!")
+        return self
 
-    def clear_logs(self, resolved_path: str = resolve_resource_path("./logs")):
-        self.output.log(f"Clearing logs directory {resolved_path}...")
+    def clear_logs(self, resolved_path: str = resolve_resource_path("./logs")) -> Self:
+        self.output.log(f"Clearing logs directory {resolved_path}...", "CLEAR")
         force_delete(resolved_path, force_non_empty_dir_deletion=True)
-        self.output.log("Successfully cleared logs directory!")
+        self.output.log("Successfully cleared logs directory!", "CLEAR")
+        return self
 
     def get_binary_versions(self, silent: bool = False) -> tuple[str, str]:
         chromedriver_version = (subprocess.check_output([self.chromedriver_path, '--version'])
@@ -434,7 +487,7 @@ class WebDriver(webdriver.Chrome):
 
         return chrome_version, chromedriver_version
 
-    def check_binary_versions(self) -> None:
+    def check_binary_versions(self) -> Self:
         self.output.log("Checking binary versions...")
         chrome_ver, chromedriver_ver = self.get_binary_versions()
 
@@ -451,35 +504,40 @@ class WebDriver(webdriver.Chrome):
             self.output.plog("Incompatible version! Chrome binaries outdated!")
             self.clear_chrome_binaries()
             self.download_chrome_binary()
+        return self
 
-    def clear_chrome_binaries(self):
+    def clear_chrome_binaries(self) -> Self:
         if self.running:
             raise DriverStillRunningException("Unable to delete binaries: The driver is still running!")
 
-        self.output.plog("Clearing Chrome binaries")
+        self.output.plog("Clearing Chrome binaries", "CLEAR")
         force_delete(dirname(self.chrome_binary))
-        self.output.plog("Cleared Chrome binaries!")
+        self.output.plog("Cleared Chrome binaries!", "CLEAR")
+        return self
 
-    def clear_chromedriver_binaries(self):
+    def clear_chromedriver_binaries(self) -> Self:
         if self.running:
             raise DriverStillRunningException("Unable to delete binaries: The driver is still running!")
 
-        self.output.plog("Clearing chromedriver.exe...")
+        self.output.plog("Clearing chromedriver.exe...", "CLEAR")
         force_delete(self.chromedriver_path)
-        self.output.plog("Cleared chromedriver.exe!")
+        self.output.plog("Cleared chromedriver.exe!", "CLEAR")
+        return self
 
-    def clear_ad_blocker_files(self, resolved_path: str = resolve_resource_path("./extensions/uBlockOrigin")):
+    def clear_ad_blocker_files(self, resolved_path: str = resolve_resource_path("./extensions/uBlockOrigin")) -> Self:
         if self.running:
             raise DriverStillRunningException("Unable to delete ad blocker files: The driver is still running!")
 
-        self.output.plog(f"Clearing ad blocker files at {resolved_path}...")
+        self.output.plog(f"Clearing ad blocker files at {resolved_path}...", "CLEAR")
         force_delete(resolved_path)
-        self.output.plog("Cleared ad blocker files!")
+        self.output.plog("Cleared ad blocker files!", "CLEAR")
+        return self
 
-    def quit(self) -> None:
+    def quit(self) -> Self:
         super().quit()
         self.running = False
         self.output.log("Quit driver session!", "SHUTDOWN")
+        return self
 
     def download_chromedriver_file(self, output_dir: str = resolve_resource_path("."),
                                    check_binary_versions: bool = True) -> str:
@@ -503,7 +561,7 @@ class WebDriver(webdriver.Chrome):
                             if d.get('platform') == 'win64'][0]["url"]
             urlretrieve(download_url, join(output_dir, 'chromedriver-win64.zip'))
 
-            self.output.print("Downloaded Chromedriver...\nNow extracting...")
+            self.output.print("Downloaded Chromedriver...").print("Now extracting...")
 
             out = extract_from_zip(
                 join(output_dir, "chromedriver-win64.zip"),
@@ -723,16 +781,18 @@ class WebDriver(webdriver.Chrome):
 
         return [element for element in self.find_all(value, by) if element.tag_name.lower() == tag]
 
-    def wait(self, amount: float) -> None:
+    def wait(self, amount: float) -> Self:
         self.output.log(f"Waiting for {amount}s...")
         time.sleep(amount)
+        return self
 
     def wait_until(self, condition: Callable[[Self | WebElement], bool | WebElement | list[WebElement]], timeout: float = 6,
-                   reverse: bool = False) -> None:
+                   reverse: bool = False) -> Self:
         if reverse:
             WebDriverWait(self, timeout).until_not(condition)
         else:
             WebDriverWait(self, timeout).until(condition)
+        return self
 
     def wait_and_find(self, value: str, by: str = "id", timeout: float = 6) -> WebElement:
         self.wait_until_located(value, by, timeout)
@@ -745,7 +805,7 @@ class WebDriver(webdriver.Chrome):
     def wait_find_with_tag(self, tag: str, value: str, by: str = "id", timeout: float = 6) -> WebElement:
         self.wait_until_located(value, by, timeout)
 
-        def _predicate(driver):
+        def _predicate(driver) -> WebElement:
             return driver.find_with_tag(tag, value, by)
 
         return WebDriverWait(self, timeout).until(_predicate)
@@ -753,7 +813,7 @@ class WebDriver(webdriver.Chrome):
     def wait_find_all_with_tag(self, tag: str, value: str, by: str = "id", timeout: float = 6) -> list[WebElement]:
         self.output.log(f"Waiting and finding all with tag {tag} ({by} = {value}) with timeout {timeout}...")
 
-        def _predicate(driver):
+        def _predicate(driver) -> list[WebElement]:
             return driver.find_all_with_tag(tag, value, by)
 
         return WebDriverWait(self, timeout).until(_predicate)
@@ -762,20 +822,28 @@ class WebDriver(webdriver.Chrome):
         self.wait_until_clickable(value, by, timeout)
         return self.find(value, by)
 
-    def wait_until_located(self, value: str = None, by: str = "id", timeout: float = 6) -> None:
+    def wait_until_located(self, value: str = None, by: str = "id", timeout: float = 6) -> Self:
         self.output.log(f"Waiting for PRESENCE ({by} = {value}) with timeout {timeout}...")
         self.wait_until(EC.presence_of_element_located((self.__resolve_by(by), value)), timeout=timeout)
+        return self
 
-    def wait_until_all_located(self, value: str = None, by: str = "id", timeout: float = 6) -> None:
+    def wait_until_all_located(self, value: str = None, by: str = "id", timeout: float = 6) -> Self:
         self.output.log(f"Waiting for PRESENCE ({by} = {value}) with timeout {timeout}...")
         self.wait_until(EC.presence_of_all_elements_located((self.__resolve_by(by), value)), timeout=timeout)
+        return self
 
-    def wait_until_clickable(self, value: str = None, by: str = "id", timeout: float = 6) -> None:
+    def wait_until_clickable(self, value: str = None, by: str = "id", timeout: float = 6) -> Self:
         self.output.log(f"Waiting for CLICKABLE ({by} = {value}) with timeout {timeout}...")
         self.wait_until(EC.element_to_be_clickable((self.__resolve_by(by), value)), timeout=timeout)
+        return self
+
+    def wait_for_user_input(self, message: str = "Press Enter to proceed...") -> Self:
+        print()
+        input(message)
+        return self
 
     @staticmethod
-    def wait_for_user_input(message: str = "Press Enter to proceed...") -> Any:
+    def get_user_input(message: str = "Press Enter to proceed...") -> str:
         print()
         return input(message)
 
@@ -791,18 +859,20 @@ class WebDriver(webdriver.Chrome):
         return answer
 
     @property
-    def body(self):
+    def body(self) -> WebElement:
         return self.find("body", "tag")
 
-    def click(self, value: str = None, by: str = "id") -> None:
+    def click(self, value: str = None, by: str = "id") -> Self:
         self.output.log(f"Clicking ({by} = {value})...")
         self.find(value, by).click()
+        return self
 
-    def click_js(self, value: str = None, by: str = "id") -> None:
+    def click_js(self, value: str = None, by: str = "id") -> Self:
         self.output.log(f"Clicking using Javascript ({by} = {value})...")
         self.execute_script("arguments[0].click()", self.find(value, by))
+        return self
 
-    def send_keys(self, element: WebElement, text: str, may_miss_spoofing: bool = True) -> None:
+    def send_keys(self, element: WebElement, text: str, may_miss_spoofing: bool = True) -> Self:
         avg_wait = self.avg_char_write_spoofing_delay * 2
         acc_factor = 1.5
         min_avg_wait = self.avg_char_write_spoofing_delay * 0.5
@@ -833,6 +903,7 @@ class WebDriver(webdriver.Chrome):
                 time.sleep(max(s_time, min_avg_wait))
         else:
             element.send_keys(text)
+        return self
 
     def wait_click_write(self, text: str, value: str, by: str = "id", timeout: float = 6) -> WebElement:
         self.wait_clickable_and_find(value, by, timeout).click()
@@ -842,10 +913,15 @@ class WebDriver(webdriver.Chrome):
         return self.wait_clickable_and_find(value, by, timeout)
 
     def wait_click_write_submit(self, text: str, value: str, by: str = "id",
-                                submit_value: str | None = None, submit_by: str = "id",  timeout: float = 6) -> None:
+                                submit_value: str | None = None, submit_by: str | None = None,  timeout: float = 6) -> Self:
         self.wait_click_write(text, value, by, timeout)
         if submit_value is not None:
-            self.wait_and_click(submit_value, submit_by, timeout)
+            if submit_by is None:
+                submit_by = "id"
+            self.wait_and_submit_element(submit_value, submit_by, timeout)
+        elif submit_by is None:
+            self.wait_and_submit_element(value, by, timeout)
+        return self
 
     def write_to(self, text: str, value: str, by: str = "id") -> WebElement:
         self.output.log(f"Writing '{text}' to ({by} = {value})...")
@@ -857,15 +933,17 @@ class WebDriver(webdriver.Chrome):
         self.find(value, by).submit()
         return self.find(value, by)
 
-    def wait_and_click_js(self, value: str = None, by: str = "id", timeout: float = 6) -> None:
+    def wait_and_click_js(self, value: str = None, by: str = "id", timeout: float = 6) -> Self:
         self.output.log(f"Waiting and clicking ({by} = {value}) with timeout {timeout}...")
         self.wait_until_clickable(value, by, timeout)
         self.click_js(value, by)
+        return self
 
-    def wait_and_click(self, value: str = None, by: str = "id", timeout: float = 6) -> None:
+    def wait_and_click(self, value: str = None, by: str = "id", timeout: float = 6) -> Self:
         self.output.log(f"Waiting and clicking ({by} = {value}) with timeout {timeout}...")
         self.wait_until_clickable(value, by, timeout)
         self.click(value, by)
+        return self
 
     def wait_and_write_to(self, text: str, value: str = None, by: str = "id", timeout: float = 6) -> WebElement:
         self.output.log(f"Waiting and writing '{text}' to ({by} = {value}) with timeout {timeout}...")
@@ -902,18 +980,18 @@ class WebDriver(webdriver.Chrome):
 
     def prevent_fullscreen(self) -> Self:
         self.execute_script(read_content(self.prevent_fullscreen_js_script))
-        return Self
+        return self
 
     def bring_to_foreground(self) -> Self:
         self.output.log("Bringing window to foreground...")
         self.switch_to.window(self.current_window_handle)
-        return Self
+        return self
 
     @property
-    def is_on_empty_tab(self):
+    def is_on_empty_tab(self) -> bool:
         return self.current_url.strip() in ["data:,", "about:blank"]
 
-    def get_browser_size(self):
+    def get_browser_size(self) -> tuple[int, int]:
         return self.execute_script("return [window.innerWidth, window.innerHeight];")
 
     def __capture_screen_js(self,
@@ -1005,6 +1083,10 @@ class WebDriver(webdriver.Chrome):
     @staticmethod
     def resolve_package_resource(resource: str) -> str:
         return resolve_resource_path(resource)
+
+    def get(self, url: str) -> Self:
+        super().get(url)
+        return self
 
     def __raise_not_implemented(self, message: str) -> NoReturn:
         self.output.log(f"Encountered NotImplementedError:\n{message}", "ERROR")

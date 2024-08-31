@@ -32,7 +32,6 @@ def open_what_is_my_ip(driver: WebDriver) -> None:
     driver.rotate_proxy()
     OpenWhatIsMyIP(driver).run()
 
-    # This sometimes behaves weirdly for some reason
     while True:
         driver.wait_for_user_input("Press Enter for next proxy...")
         driver.rotate_proxy()
@@ -44,5 +43,22 @@ def open_google(driver: WebDriver) -> None:
     driver.wait_for_user_input("Finished...")
 
 
+def clear_all_downloads():
+    WebDriver(late_init=True, print_logs=True).clear_downloads()
+
+
+def readme_example():
+    """
+    The example from README.md
+    """
+    from WebDriverPy import WebDriver
+
+    WebDriver(no_cookies=True) \
+        .get("https://google.com") \
+        .wait_click_write_submit("Hello World!", "q", by="name") \
+        .wait_for_user_input() \
+        .quit()
+
+
 if __name__ == '__main__':
-    main()
+    readme_example()
