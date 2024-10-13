@@ -605,7 +605,7 @@ class WebDriver(webdriver.Chrome):
 
         return self.chromedriver_revision
 
-    def get_latest_chrome_binary_version(self) -> dict:
+    def get_latest_chrome_binary_download(self) -> str:
         self.output.log("Fetching the latest available Chrome version info...")
 
         response = requests.get(
@@ -614,7 +614,10 @@ class WebDriver(webdriver.Chrome):
 
         response.raise_for_status()
 
-        return response.json()['channels']['Stable']
+        available_downloads = response.json()['channels']['Stable']["downloads"]["chrome"]
+        win_download_url = [download["url"] for download in available_downloads if download.get("platform") == "win64"][0]
+
+        return win_download_url
 
     def download_chrome_binary(self, output_dir: str = resolve_resource_path("."),
                                revision_number: int | None = None,
@@ -662,24 +665,23 @@ class WebDriver(webdriver.Chrome):
             self.output.plog(f"No tries left after trying version {i}!", "WARNING")
             self.output.plog(f"Retrying with the latest available version...")
 
-            latest_version = self.get_latest_chrome_binary_version()
-            output_file = f"Win_{latest_version}_chrome-win.zip"
+            download_url = self.get_latest_chrome_binary_download()
+
+            output_file = "chrome-win64.zip"
 
             try:
                 urlretrieve(
-                    f"https://www.googleapis.com/download/storage/v1/b/chromium-browser-snapshots/o/"
-                    f"{output_file.replace('_', '%2F')}?alt=media",
+                    download_url,
                     join(temp_dir, output_file)
                 )
             except HTTPError:
-                self.output.plog(f"Failed to download the latest version {latest_version}.", "ERROR")
+                self.output.plog(f"Failed to download the latest version at URL {download_url}.", "ERROR")
                 raise DriverRequestsException("Failed to download Chrome binary. Please check your network or the version availability.")
 
         out = abspath(
             join(
                 extract_all_from_zip(
                     join(temp_dir, output_file),
-                    inner_extraction_dir="chrome-win",
                     output_dir=chrome_binary_dir,
                     log_func=self.output.log
                 ),
