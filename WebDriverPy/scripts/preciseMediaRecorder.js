@@ -1,6 +1,12 @@
 async function startRecording() {
     const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { mediaSource: 'screen' }
+        video: {
+            mediaSource: 'screen',
+            cursor: 'never',
+            width: { ideal: !__::RES_WIDTH_TEMPLATE_DUMMY::__! },
+            height: { ideal: !__::RES_HEIGHT_TEMPLATE_DUMMY::__! },
+            frameRate: { ideal: !__::FPS_IDEAL_TEMPLATE_DUMMY::__!, max: !__::FPS_MAX_TEMPLATE_DUMMY::__! }
+        }
     });
 
     const mediaRecorder = new MediaRecorder(stream);

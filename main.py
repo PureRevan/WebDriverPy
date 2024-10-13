@@ -9,6 +9,8 @@ def main() -> None:
     # Proxies here
     p = []
 
+    # clear_all_downloads()
+
     driver = setup_driver(p)
     try:
         if driver.uses_proxy:
@@ -43,8 +45,11 @@ def open_google(driver: WebDriver) -> None:
     driver.wait_for_user_input("Finished...")
 
 
-def clear_all_downloads():
-    WebDriver(late_init=True, print_logs=True).clear_downloads()
+def clear_all_driver_data() -> None:
+    WebDriver(late_init=True, disable_all_logs=True, print_logs=True) \
+     .clear_downloads() \
+     .clear_logs() \
+     .quit()
 
 
 def readme_example():
@@ -62,3 +67,4 @@ def readme_example():
 
 if __name__ == '__main__':
     readme_example()
+    # main()

@@ -27,7 +27,8 @@ from selenium.webdriver.common.window import WindowTypes
 
 from .subpackages.PyProxies import load_proxies_list, RankedProxies, Proxy
 
-from .output_manager import OutputManager, DefaultOutputManager
+from .output_manager import OutputManager, DefaultOutputManager, NoOutput
+
 from .subpackages.PyProxies.proxy import ProtectedProxy
 from .utils import (extract_from_zip, extract_all_from_zip, ensure_exists, check_file_exists, force_delete, read_content,
                     file_name_gen, find_files_with_extension, resolve_resource_path, is_authenticated_proxy_string, dump,
@@ -55,7 +56,7 @@ class WebDriver(webdriver.Chrome):
                  use_ad_blocker: bool = True,
                  disable_password_manager_popups: bool = True,
                  ignore_certificate_errors: bool = False,
-                 output_manager: OutputManager = DefaultOutputManager(),
+                 output_manager: OutputManager | None = DefaultOutputManager(),
                  log_print_output: bool = False,
                  print_logs: bool = False,
                  disable_all_logs: bool = False,
@@ -101,7 +102,7 @@ class WebDriver(webdriver.Chrome):
         :param no_cookies: Whether to block all cookies.
             While True simplifies the process of scraping by blocking some popups, some websites may not function with this setting enabled
         :param start_maximized: Whether to start the window in maximized mode
-        :param output_manager: The output manager instance to use for logging and other events
+        :param output_manager: The output manager instance to use for logging and other events. Use None for no output
         :param log_print_output: Whether to always log anything printed using the output_manager
         :param print_logs: Whether to print all logs
         :param disable_all_logs: Whether to disable all logs
@@ -158,7 +159,7 @@ class WebDriver(webdriver.Chrome):
         self._ensure_internal_base_dirs_exists()
 
         self.running = False
-        self.output = output_manager
+        self.output = output_manager if output_manager is not None else NoOutput()
 
         self.output.set_always_log_prints(log_print_output)
         self.output.set_always_print_logs(print_logs)
@@ -188,6 +189,9 @@ class WebDriver(webdriver.Chrome):
         self.prevent_fullscreen_js_script = prevent_fullscreen_js_script
 
         self.recording_buffer_js = recording_buffer_js
+
+        self.recording_resolution_js = (2560, 1440)
+        self.fps_js_max = 165
 
         self.__reserved_file_names = []
 
@@ -601,11 +605,24 @@ class WebDriver(webdriver.Chrome):
 
         return self.chromedriver_revision
 
+    def get_latest_chrome_binary_version(self) -> dict:
+        self.output.log("Fetching the latest available Chrome version info...")
+
+        response = requests.get(
+            "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json"
+        )
+
+        response.raise_for_status()
+
+        return response.json()['channels']['Stable']
+
     def download_chrome_binary(self, output_dir: str = resolve_resource_path("."),
                                revision_number: int | None = None,
                                check_binary_versions: bool = True) -> str:
         chrome_binary_dir = join(output_dir, "chrome_binary")
-        ensure_exists(chrome_binary_dir)
+        temp_dir = join(output_dir, "temp")
+
+        ensure_exists(temp_dir)
 
         if check_file_exists("chrome.exe", chrome_binary_dir):
             self.output.print("Found and registered Chrome binary files...")
@@ -627,7 +644,7 @@ class WebDriver(webdriver.Chrome):
                 urlretrieve(
                     f"https://www.googleapis.com/download/storage/v1/b/chromium-browser-snapshots/o/"
                     f"{output_file.replace('_', '%2F')}?alt=media",
-                    join(output_dir, output_file)
+                    join(temp_dir, output_file)
                 )
                 break
             except HTTPError as e:
@@ -641,10 +658,27 @@ class WebDriver(webdriver.Chrome):
 
                 output_file = f"Win_{i}_chrome-win.zip"
 
+        if tries < 1:
+            self.output.plog(f"No tries left after trying version {i}!", "WARNING")
+            self.output.plog(f"Retrying with the latest available version...")
+
+            latest_version = self.get_latest_chrome_binary_version()
+            output_file = f"Win_{latest_version}_chrome-win.zip"
+
+            try:
+                urlretrieve(
+                    f"https://www.googleapis.com/download/storage/v1/b/chromium-browser-snapshots/o/"
+                    f"{output_file.replace('_', '%2F')}?alt=media",
+                    join(temp_dir, output_file)
+                )
+            except HTTPError:
+                self.output.plog(f"Failed to download the latest version {latest_version}.", "ERROR")
+                raise DriverRequestsException("Failed to download Chrome binary. Please check your network or the version availability.")
+
         out = abspath(
             join(
                 extract_all_from_zip(
-                    join(output_dir, output_file),
+                    join(temp_dir, output_file),
                     inner_extraction_dir="chrome-win",
                     output_dir=chrome_binary_dir,
                     log_func=self.output.log
@@ -996,9 +1030,12 @@ class WebDriver(webdriver.Chrome):
 
     def __capture_screen_js(self,
                             duration: float,
-                            video_base_name: str) -> str:
+                            video_base_name: str,
+                            fps: int) -> str:
         file_name = file_name_gen(video_base_name, do_not_use=self.__reserved_file_names)
         self.__reserved_file_names.append(file_name)
+
+        width, height = self.recording_resolution_js
 
         recording_buffer = self.recording_buffer_js if self.recording_buffer_js > 1 \
             else str(int(duration * 1000 * self.recording_buffer_js))
@@ -1008,7 +1045,11 @@ class WebDriver(webdriver.Chrome):
             {
                 "!__::DURATION_TEMPLATE_DUMMY::__!": str(int(duration * 1000)),
                 "!__::NAME_TEMPLATE_DUMMY::__!": basename(file_name),
-                "!__::BUFFER_MS_TEMPLATE_DUMMY::__!": recording_buffer
+                "!__::BUFFER_MS_TEMPLATE_DUMMY::__!": recording_buffer,
+                "!__::FPS_IDEAL_TEMPLATE_DUMMY::__!": str(fps),
+                "!__::FPS_MAX_TEMPLATE_DUMMY::__!": str(self.fps_js_max),
+                "!__::RES_HEIGHT_TEMPLATE_DUMMY::__!": str(height),
+                "!__::RES_WIDTH_TEMPLATE_DUMMY::__!": str(width)
             }
         )
 
@@ -1047,11 +1088,10 @@ class WebDriver(webdriver.Chrome):
         match capture_method.lower():
             case "javascript":
                 self.output.log(f"Starting {duration}s {'blocking' if blocking else 'non-blocking'} screen capture: "
-                                f"(capture_method = Javascript, video_name = {video_base_name}, "
-                                f"output_path = {output_path})...")
+                                f"(capture_method = Javascript, video_name = {video_base_name}, fps = {fps_if_available},"
+                                f" output_path = {output_path})...")
                 target = self.__capture_screen_js
-                args = (duration, video_base_name)
-
+                args = (duration, video_base_name, fps_if_available)
             case _:
                 if not callable(capture_method):
                     raise WindowRecorderException("Invalid capture method supplied!")
