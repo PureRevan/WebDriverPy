@@ -53,7 +53,7 @@ class WebDriver(webdriver.Chrome):
                  allow_browser_recording: bool = True,
                  disable_dev_memory_restrictions: bool = True,
                  enable_safe_browsing: bool = True,
-                 use_ad_blocker: bool = True,
+                 use_ad_blocker: bool = False,
                  disable_password_manager_popups: bool = True,
                  ignore_certificate_errors: bool = False,
                  output_manager: OutputManager | None = DefaultOutputManager(),
@@ -66,6 +66,7 @@ class WebDriver(webdriver.Chrome):
                  prevent_fullscreen_js_script: str = resolve_resource_path("./scripts/preventFullScreen.js"),
                  recording_buffer_js: float = 0.05,
                  try_spoofing: bool = True,
+                 keyboard_spoofing: bool = True,
                  avg_char_write_spoofing_delay: float = 0.2,
                  proxies: list[Proxy] | Proxy | list[str] | str | None = None,
                  proxy_auto_search_size: int = 50,
@@ -110,7 +111,7 @@ class WebDriver(webdriver.Chrome):
         :param allow_browser_recording: Whether to allow the browser to record the current tab
         :param disable_dev_memory_restrictions: Whether to disable certain memory restriction for chrome
         :param enable_safe_browsing: Whether to enable safe browsing
-        :param use_ad_blocker: Whether to use an Ad blocker. If set to True, downloads (if necessary) and uses uBlock Origin
+        :param use_ad_blocker: Whether to use an Ad blocker. If set to True, downloads (if necessary) and uses uBlock Origin. Note that this may no longer be supported for chromium due to Manifest V3.
         :param download_directory: The download directory for chrome
         :param recording_script_js: The path to the javascript file used for recording the browser screen.
             By default, mediaRecorder.js and the improved preciseMediaRecorder.js are available in the scripts folder.
@@ -183,6 +184,7 @@ class WebDriver(webdriver.Chrome):
         self.has_cookies = not no_cookies
         self.download_directory = download_directory
         self.try_spoofing = try_spoofing
+        self.keyboard_spoofing = keyboard_spoofing
         self.avg_char_write_spoofing_delay = avg_char_write_spoofing_delay
 
         self.recording_js_script = recording_script_js
@@ -401,14 +403,14 @@ class WebDriver(webdriver.Chrome):
         internal_dirs = [
             resolve_resource_path(rss)
             for rss in [
-                "./captures",
-                "./logs",
-                "./chrome_binary",
-                "./extensions/uBlockOrigin",
-                "./extensions/proxy_auth",
-                "./scripts",
-                "./subpackages",
-                "./temp"
+                "./captures/",
+                "./logs/",
+                "./chrome_binary/",
+                "./extensions/uBlockOrigin/",
+                "./extensions/proxy_auth/",
+                "./scripts/",
+                "./subpackages/",
+                "./temp/"
             ]
         ]
 
@@ -916,7 +918,7 @@ class WebDriver(webdriver.Chrome):
         chance_state = cycle([15, 5, 22])
         chance_to_mistype = next(chance_state)
 
-        if self.try_spoofing:
+        if self.try_spoofing and self.keyboard_spoofing:
             for char in text:
                 if may_miss_spoofing and char in string.ascii_letters and randint(1, chance_to_mistype) == 1:
                     element.send_keys(choice(string.ascii_letters))
@@ -944,7 +946,7 @@ class WebDriver(webdriver.Chrome):
     def wait_click_write(self, text: str, value: str, by: str = "id", timeout: float = 6) -> WebElement:
         self.wait_clickable_and_find(value, by, timeout).click()
         self.send_keys(self.wait_clickable_and_find(value, by, timeout), text)
-        if self.try_spoofing:
+        if self.try_spoofing and self.keyboard_spoofing:
             time.sleep(uniform(0.15, 0.65))
         return self.wait_clickable_and_find(value, by, timeout)
 
@@ -999,9 +1001,13 @@ class WebDriver(webdriver.Chrome):
         self.switch_to.window(name)
         return self
 
-    def open_new_tab(self) -> Self:
+    def open_new_tab(self, url: str | None = None) -> Self:
         self.output.log("Opening new Tab...")
         self.switch_to.new_window(WindowTypes.TAB)
+
+        if url is not None:
+            self.get(url)
+
         return self
 
     def open_new_window(self) -> Self:

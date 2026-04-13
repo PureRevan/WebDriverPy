@@ -4,6 +4,7 @@
 
 It mainly aims to make the WebDriver more accessible in terms of [required setup](https://selenium-python.readthedocs.io/installation.html) to run it, and therefore automates the necessary installations, along with optional ones, such as an [ad blocker extension](https://ublockorigin.com).
 
+**(Update) Note:** Some features of this project may be broken or behave differently since the forceful introduction of Manifest V3 (like the ad blocker no longer being supported). Overall this remains an experimental project.
 
 ## Installation
 

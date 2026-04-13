@@ -99,19 +99,30 @@ class OpenWhatIsMyIP(OpeningDriverScript):
 
 class GrabTempMail(OpeningDriverScript):
     """
-    Grabs and returns a temporary email address from "https://temp-mail.org"
+    Grabs and returns a temporary email address from "https://temp-mail.io".
+
+    Note: Using this with no_cookies=True may cause problems.
     """
 
     def __init__(self, driver: WebDriver):
-        super().__init__(driver, "https://temp-mail.org")
+        super().__init__(driver, "https://temp-mail.io")
 
-    def run(self, open_new_tab_at_end: bool = True) -> str:
+    def run(self, open_new_tab_at_end: bool = False, new_tab_url: str | None = None) -> str:
         super().run()
 
-        mail = self.driver.wait_and_find("mail").text.strip()
+        def find_mail() -> str | None:
+            value = self.driver.wait_and_find("email").get_attribute("value").strip()
+
+            if not value or "@" not in value:
+                return None
+
+            return value
+
+        self.driver.wait_until(lambda _: find_mail() is not None, timeout=12)
+        mail = find_mail()
 
         if open_new_tab_at_end:
-            self.driver.open_new_tab()
+            self.driver.open_new_tab(new_tab_url)
 
         return mail
 

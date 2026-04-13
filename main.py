@@ -1,4 +1,4 @@
-from WebDriverPy import OpenWhatIsMyIP, OpenGoogle, Proxy, WebDriver
+from WebDriverPy import OpenWhatIsMyIP, OpenGoogle, Proxy, WebDriver, GrabTempMail
 
 
 def main() -> None:
