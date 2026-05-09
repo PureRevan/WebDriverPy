@@ -14,16 +14,15 @@ from urllib.error import URLError, HTTPError
 
 import requests
 
-from selenium import webdriver
 from selenium.common import WebDriverException
 from selenium.webdriver import Keys
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support.wait import WebDriverWait
-from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.window import WindowTypes
+
+import undetected_chromedriver as uc
 
 from .subpackages.PyProxies import load_proxies_list, RankedProxies, Proxy
 
@@ -36,7 +35,7 @@ from .utils import (extract_from_zip, extract_all_from_zip, ensure_exists, check
 from .exceptions import WindowRecorderException, DriverStillRunningException, DriverProxyException, DriverRequestsException
 
 
-class WebDriver(webdriver.Chrome):
+class WebDriver(uc.Chrome):
     """
     An extended and more accessible version of the selenium webdriver based on Chromium.
 
@@ -65,7 +64,6 @@ class WebDriver(webdriver.Chrome):
                  recording_script_js: str = resolve_resource_path("./scripts/preciseMediaRecorder.js"),
                  prevent_fullscreen_js_script: str = resolve_resource_path("./scripts/preventFullScreen.js"),
                  recording_buffer_js: float = 0.05,
-                 try_spoofing: bool = True,
                  keyboard_spoofing: bool = True,
                  avg_char_write_spoofing_delay: float = 0.2,
                  proxies: list[Proxy] | Proxy | list[str] | str | None = None,
@@ -87,8 +85,6 @@ class WebDriver(webdriver.Chrome):
         - late_init: Whether to initialize the underlying Selenium Webdriver superclass later manually by calling the init() method
             This allows for configurations otherwise impossible while the driver is running before starting it, like clearing or managing internal directories / downloads
         - headless: Starts the browser in headless mode. (Experimental with some options)
-        - try_spoofing: Whether the driver should use some basic anti-bot-detection measures, like typing like a
-            human instead of just pasting the desired text into a textbox
         - proxies: Configure proxies settings
 
         Advanced Options:
@@ -119,8 +115,6 @@ class WebDriver(webdriver.Chrome):
         :param recording_buffer_js: The time buffer (in ms) by which to delay the end of the recording such
             that the final length is rather longer than too short.
             If the value is less than 1 it is interpreted as a ratio for the total duration. (e.g. 0.05 -> 5% longer)
-        :param try_spoofing: Whether to attempt to look more like a normal browser and less like automated software by
-            for instance changing user agent and passing some specific arguments to the Chromedriver
         :param avg_char_write_spoofing_delay: The average delay per character written by the send_keys() method of this class
         :param additional_driver_arguments: Any additional arguments directly supplied using the Options() class and .add_argument()
         :param disable_password_manager_popups: Whether to disable password manager popups
@@ -183,7 +177,6 @@ class WebDriver(webdriver.Chrome):
         self.is_headless = headless
         self.has_cookies = not no_cookies
         self.download_directory = download_directory
-        self.try_spoofing = try_spoofing
         self.keyboard_spoofing = keyboard_spoofing
         self.avg_char_write_spoofing_delay = avg_char_write_spoofing_delay
 
@@ -208,7 +201,7 @@ class WebDriver(webdriver.Chrome):
 
         self.check_binary_versions()
 
-        chrome_options = Options()
+        chrome_options = uc.ChromeOptions()
         chrome_options.binary_location = self.chrome_binary
 
         self.output.log(f"Registered Chrome binary location: {self.chrome_binary}", "CONFIG")
@@ -253,9 +246,6 @@ class WebDriver(webdriver.Chrome):
             "--headless=new": headless,
             "--start-maximized": start_maximized,
             "--use-fake-ui-for-media-stream": allow_browser_recording,
-            "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36": try_spoofing,
-            "--disable-blink-features=AutomationControlled": try_spoofing,
-            "--disable-blink-features": try_spoofing,
             "--disable-notifications": True,
             "--disable-infobars": True,
             "--ignore_certificate_errors": ignore_certificate_errors
@@ -278,10 +268,6 @@ class WebDriver(webdriver.Chrome):
             if is_enabled:
                 chrome_options.add_argument(option)
 
-        if try_spoofing:
-            chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            chrome_options.add_experimental_option('useAutomationExtension', False)
-
         if use_ad_blocker:
             ad_blocker_extension = self.download_ublock_origin()
             self._extensions.add(ad_blocker_extension)
@@ -291,7 +277,7 @@ class WebDriver(webdriver.Chrome):
 
         self._init_options = chrome_options
         self._init_kwargs = kwargs
-        self._init_service = Service(executable_path=self.chromedriver_path)
+        self._chromedriver_path = self.chromedriver_path
 
         if not late_init:
             self.init()
@@ -310,18 +296,22 @@ class WebDriver(webdriver.Chrome):
             self.output.log(f"Registered additional kwargs for superclass: {self._init_kwargs}", "CONFIG")
 
         extensions = ','.join(self._extensions)
-        self._init_options.add_argument(f"--load-extension={extensions}")
-        self.output.log(f"Registered extensions: {extensions}", "CONFIG")
+        if extensions:
+            self._init_options.add_argument(f"--load-extension={extensions}")
+            self.output.log(f"Registered extensions: {extensions}", "CONFIG")
 
         self.running = True
-        super().__init__(service=self._init_service, options=self._init_options, **self._init_kwargs)
+        super().__init__(
+            options=self._init_options,
+            driver_executable_path=self._chromedriver_path,
+            browser_executable_path=self.chrome_binary,
+            headless=self.is_headless,
+            **self._init_kwargs
+        )
 
         self.output.log("Driver initialized!", "STARTUP")
 
-        if self.try_spoofing:
-            self.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         return self
-
 
     def _proxy_init_config(self, proxies: list[Proxy] | Proxy | list[str] | str | None,
                            proxy_auto_rotation_size: int, proxy_auto_search_size: int) -> Self:
@@ -918,7 +908,7 @@ class WebDriver(webdriver.Chrome):
         chance_state = cycle([15, 5, 22])
         chance_to_mistype = next(chance_state)
 
-        if self.try_spoofing and self.keyboard_spoofing:
+        if self.keyboard_spoofing:
             for char in text:
                 if may_miss_spoofing and char in string.ascii_letters and randint(1, chance_to_mistype) == 1:
                     element.send_keys(choice(string.ascii_letters))
@@ -946,7 +936,7 @@ class WebDriver(webdriver.Chrome):
     def wait_click_write(self, text: str, value: str, by: str = "id", timeout: float = 6) -> WebElement:
         self.wait_clickable_and_find(value, by, timeout).click()
         self.send_keys(self.wait_clickable_and_find(value, by, timeout), text)
-        if self.try_spoofing and self.keyboard_spoofing:
+        if self.keyboard_spoofing:
             time.sleep(uniform(0.15, 0.65))
         return self.wait_clickable_and_find(value, by, timeout)
 

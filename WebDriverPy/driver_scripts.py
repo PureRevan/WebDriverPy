@@ -118,11 +118,10 @@ class GrabTempMail(OpeningDriverScript):
 
             return value
 
-        self.driver.wait_until(lambda _: find_mail() is not None, timeout=12)
+        self.driver.wait_until(lambda _: find_mail() is not None, timeout=10)
         mail = find_mail()
 
         if open_new_tab_at_end:
             self.driver.open_new_tab(new_tab_url)
 
         return mail
-
